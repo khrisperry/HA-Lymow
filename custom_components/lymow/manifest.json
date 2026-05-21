@@ -1,8 +1,9 @@
-{
+﻿{
   "domain": "lymow",
   "name": "Lymow",
   "version": "0.1.0",
   "documentation": "https://github.com/khrisperry/HA-Lymow",
+  "issue_tracker": "https://github.com/khrisperry/HA-Lymow/issues",
   "requirements": [
     "boto3",
     "awscrt",
@@ -10,7 +11,9 @@
     "pycognito"
   ],
   "dependencies": [],
-  "codeowners": ["@khrisperry"],
+  "codeowners": [
+    "@khrisperry"
+  ],
   "iot_class": "cloud_polling",
   "config_flow": true
 }
