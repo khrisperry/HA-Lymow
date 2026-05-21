@@ -4,8 +4,17 @@
     "step": {
       "user": {
         "title": "Configure Lymow",
+        "description": "Enter the AWS Cognito and IoT settings used to connect to your Lymow device.",
         "data": {
-          "host": "Host"
+          "lymow_thing_name": "Lymow Thing Name",
+          "lymow_iot_endpoint": "Lymow IoT Endpoint",
+          "email": "Lymow Email",
+          "password": "Lymow Password",
+          "cognito_user_pool_id": "Cognito User Pool ID",
+          "cognito_user_pool_client_id": "Cognito Client ID",
+          "cognito_identity_pool_id": "Cognito Identity Pool ID",
+          "aws_region": "AWS Region",
+          "cognito_region": "Cognito Region"
         }
       }
     }

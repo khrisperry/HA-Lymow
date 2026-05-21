@@ -1,0 +1,6 @@
+﻿awscrt
+awsiotsdk
+python-dotenv
+paho-mqtt
+boto3
+pycognito

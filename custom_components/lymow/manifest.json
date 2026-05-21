@@ -2,9 +2,15 @@
   "domain": "lymow",
   "name": "Lymow",
   "version": "0.1.0",
-  "documentation": "https://github.com/your/repo",
-  "requirements": [],
+  "documentation": "https://github.com/khrisperry/HA-Lymow",
+  "requirements": [
+    "boto3",
+    "awscrt",
+    "awsiotsdk",
+    "pycognito"
+  ],
   "dependencies": [],
-  "codeowners": ["@yourgithub"],
-  "iot_class": "local_polling"
+  "codeowners": ["@khrisperry"],
+  "iot_class": "cloud_polling",
+  "config_flow": true
 }

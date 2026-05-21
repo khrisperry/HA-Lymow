@@ -1,0 +1,30 @@
+﻿# Python / virtual env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Secrets / local config
+.env
+.env.*
+!.env.example
+
+# Reverse engineering / generated artifacts
+captures/
+apk_extract/
+*.log
+*.bin
+*.decoded.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Home Assistant / local runtime
+.storage/
+
+# Home Assistant custom component cache
+custom_components/**/__pycache__/
