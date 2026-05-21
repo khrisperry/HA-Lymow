@@ -223,7 +223,20 @@ class LymowHub:
 
             decoded = base64.b64decode(message)
 
+            _LOGGER.info(
+                "Lymow MQTT message received: topic=%s decoded_size=%s bytes",
+                topic,
+                len(decoded),
+            )
+
             map_data = self._decode_map_info(decoded)
+
+            if not map_data and len(decoded) > 500:
+                _LOGGER.info(
+                    "Lymow larger payload received but no map decoded: size=%s bytes",
+                    len(decoded),
+                )
+
             if map_data:
                 map_url = self._save_map_data(map_data)
 
