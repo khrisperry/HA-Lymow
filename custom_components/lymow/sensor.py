@@ -53,6 +53,11 @@ SENSOR_TYPES = {
         "name": "Last Update",
         "icon": "mdi:clock-outline",
     },
+    "map_svg_url": {
+    "name": "Map SVG URL",
+    "icon": "mdi:image",
+    },
+
 }
 
 

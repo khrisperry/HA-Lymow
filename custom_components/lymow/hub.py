@@ -223,7 +223,7 @@ class LymowHub:
 
             decoded = base64.b64decode(message)
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Lymow MQTT message received: topic=%s decoded_size=%s bytes",
                 topic,
                 len(decoded),
@@ -239,18 +239,21 @@ class LymowHub:
 
             if map_data:
                 map_url = self._save_map_data(map_data)
+                map_svg_url = self._save_map_svg(map_data)
 
                 self.state["map_loaded"] = True
                 self.state["map_zone_count"] = map_data["zone_count"]
                 self.state["map_point_count"] = map_data["point_count"]
                 self.state["map_updated_at"] = map_data["updated_at"]
                 self.state["map_json_url"] = map_url
+                self.state["map_svg_url"] = map_svg_url
 
                 _LOGGER.info(
-                    "Decoded Lymow map: %s zones, %s points, url=%s",
+                    "Decoded Lymow map: %s zones, %s points, json=%s, svg=%s",
                     map_data["zone_count"],
                     map_data["point_count"],
                     map_url,
+                    map_svg_url,
                 )
 
                 self._notify_listeners()
@@ -771,3 +774,148 @@ class LymowHub:
         except Exception:
             _LOGGER.exception("Failed saving Lymow map data")
             return None
+
+    def _save_map_svg(self, map_data: dict[str, Any]) -> str | None:
+        """Save decoded Lymow map data as an SVG image."""
+        try:
+            thing_name = self.config.get(CONF_LYMOW_THING_NAME, "lymow")
+            safe_thing_name = "".join(
+                char if char.isalnum() or char in ("_", "-") else "_"
+                for char in thing_name
+            )
+
+            map_dir = self.hass.config.path("www", "lymow")
+            os.makedirs(map_dir, exist_ok=True)
+
+            filename = f"{safe_thing_name}_map.svg"
+            path = os.path.join(map_dir, filename)
+
+            bounds = map_data.get("bounds") or {}
+            min_x = bounds.get("min_x", 0)
+            max_x = bounds.get("max_x", 1)
+            min_y = bounds.get("min_y", 0)
+            max_y = bounds.get("max_y", 1)
+
+            width = 1000
+            height = 1000
+            padding = 40
+
+            range_x = max(max_x - min_x, 1)
+            range_y = max(max_y - min_y, 1)
+
+            scale = min(
+                (width - padding * 2) / range_x,
+                (height - padding * 2) / range_y,
+            )
+
+            def transform_point(point: dict[str, float]) -> tuple[float, float]:
+                """Transform Lymow map coordinates into SVG coordinates."""
+                x = padding + ((point["x"] - min_x) * scale)
+
+                # SVG y-axis is inverted compared to normal map coordinates.
+                y = height - padding - ((point["y"] - min_y) * scale)
+
+                return round(x, 2), round(y, 2)
+
+            def points_to_svg_path(points: list[dict[str, float]]) -> str:
+                """Convert map points to an SVG path string."""
+                if not points:
+                    return ""
+
+                transformed = [transform_point(point) for point in points]
+
+                first_x, first_y = transformed[0]
+                path_parts = [f"M {first_x} {first_y}"]
+
+                for x, y in transformed[1:]:
+                    path_parts.append(f"L {x} {y}")
+
+                path_parts.append("Z")
+                return " ".join(path_parts)
+
+            zone_colors = [
+                "#4f8cff",
+                "#5cc98a",
+                "#f2b84b",
+                "#e87878",
+                "#9b7cff",
+                "#56c7d9",
+                "#d884f2",
+                "#95d15f",
+            ]
+
+            svg_parts: list[str] = [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
+                '<rect width="100%" height="100%" fill="#111827"/>',
+                '<style>',
+                '.zone { stroke: #ffffff; stroke-width: 2; fill-opacity: 0.28; }',
+                '.linked { stroke: #facc15; stroke-width: 1.5; fill: none; stroke-dasharray: 5 5; opacity: 0.8; }',
+                '.label { fill: #ffffff; font-family: Arial, sans-serif; font-size: 22px; font-weight: 600; paint-order: stroke; stroke: #111827; stroke-width: 4px; }',
+                '.subtitle { fill: #d1d5db; font-family: Arial, sans-serif; font-size: 16px; }',
+                '</style>',
+            ]
+
+            zones = map_data.get("zones", [])
+            for index, zone in enumerate(zones):
+                points = zone.get("points", [])
+                path_data = points_to_svg_path(points)
+                if not path_data:
+                    continue
+
+                color = zone_colors[index % len(zone_colors)]
+                name = zone.get("name") or f"Zone {index + 1}"
+
+                svg_parts.append(
+                    f'<path class="zone" d="{path_data}" fill="{color}">'
+                    f'<title>{name}</title>'
+                    f'</path>'
+                )
+
+                zone_bounds = zone.get("bounds")
+                if zone_bounds:
+                    label_x = (zone_bounds["min_x"] + zone_bounds["max_x"]) / 2
+                    label_y = (zone_bounds["min_y"] + zone_bounds["max_y"]) / 2
+                    svg_x, svg_y = transform_point({"x": label_x, "y": label_y})
+
+                    safe_name = (
+                        str(name)
+                        .replace("&", "&amp;")
+                        .replace("<", "&lt;")
+                        .replace(">", "&gt;")
+                    )
+
+                    svg_parts.append(
+                        f'<text class="label" x="{svg_x}" y="{svg_y}" text-anchor="middle">{safe_name}</text>'
+                    )
+
+            linked_records = map_data.get("linked_records", [])
+            for linked_record in linked_records:
+                points = linked_record.get("points", [])
+                path_data = points_to_svg_path(points)
+                if not path_data:
+                    continue
+
+                svg_parts.append(
+                    f'<path class="linked" d="{path_data}">'
+                    f'<title>{linked_record.get("id", "linked record")}</title>'
+                    f'</path>'
+                )
+
+            updated_at = map_data.get("updated_at", "")
+            svg_parts.append(
+                f'<text class="subtitle" x="20" y="{height - 20}">'
+                f'Lymow map updated: {updated_at}'
+                f'</text>'
+            )
+
+            svg_parts.append("</svg>")
+
+            with open(path, "w", encoding="utf-8") as file:
+                file.write("\n".join(svg_parts))
+
+            return f"/local/lymow/{filename}"
+
+        except Exception:
+            _LOGGER.exception("Failed saving Lymow map SVG")
+            return None 
