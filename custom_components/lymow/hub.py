@@ -527,36 +527,66 @@ class LymowHub:
             "y": round(y, 4),
         }
 
-    def _decode_zone_record(self, zone_blob: bytes) -> dict[str, Any] | None:
-        """Decode one Lymow map zone record."""
-        try:
-            zone_fields = self._parse_protobuf_fields(zone_blob)
-        except Exception:
+    def _first_value(self, fields: dict[int, list[Any]], field_num: int) -> Any | None:
+        """Return the first protobuf field value."""
+        values = fields.get(field_num)
+        if not values:
+            return None
+        return values[0]
+
+    def _first_int(self, fields: dict[int, list[Any]], field_num: int) -> int | None:
+        """Return the first protobuf field value as int."""
+        value = self._first_value(fields, field_num)
+        return value if isinstance(value, int) else None
+
+    def _first_text(self, fields: dict[int, list[Any]], field_num: int) -> str | None:
+        """Return the first protobuf field value as UTF-8 text."""
+        value = self._first_value(fields, field_num)
+        if not isinstance(value, bytes):
             return None
 
-        name = None
-        zone_id = None
+        try:
+            return value.decode("utf-8")
+        except UnicodeDecodeError:
+            return value.hex()
+
+    def _bounds_for_points(
+        self,
+        points: list[dict[str, float]],
+    ) -> dict[str, float] | None:
+        """Return bounds for a list of map points."""
+        if not points:
+            return None
+
+        xs = [point["x"] for point in points]
+        ys = [point["y"] for point in points]
+
+        return {
+            "min_x": round(min(xs), 4),
+            "max_x": round(max(xs), 4),
+            "min_y": round(min(ys), 4),
+            "max_y": round(max(ys), 4),
+        }
+
+    def _decode_point_list(self, points_blob: bytes | None) -> list[dict[str, float]]:
+        """Decode a repeated point-list blob.
+
+        Observed map structure:
+          field 1 = repeated point blob
+            point field 1 = x fixed32 float
+            point field 2 = y fixed32 float
+        """
+        if not isinstance(points_blob, bytes) or not points_blob:
+            return []
+
         points: list[dict[str, float]] = []
 
-        header_values = zone_fields.get(1)
-        if header_values and isinstance(header_values[0], bytes):
-            try:
-                header_fields = self._parse_protobuf_fields(header_values[0])
+        try:
+            fields = self._parse_protobuf_fields(points_blob)
+        except Exception:
+            return points
 
-                name_values = header_fields.get(2)
-                id_values = header_fields.get(3)
-
-                if name_values and isinstance(name_values[0], bytes):
-                    name = name_values[0].decode("utf-8", errors="replace")
-
-                if id_values and isinstance(id_values[0], bytes):
-                    zone_id = id_values[0].decode("utf-8", errors="replace")
-
-            except Exception:
-                _LOGGER.debug("Failed to decode Lymow map zone header", exc_info=True)
-
-        point_values = zone_fields.get(5, [])
-        for point_blob in point_values:
+        for point_blob in fields.get(1, []):
             if not isinstance(point_blob, bytes):
                 continue
 
@@ -564,103 +594,158 @@ class LymowHub:
             if point:
                 points.append(point)
 
-        if not name and not zone_id and not points:
+        return points
+
+    def _decode_area_container(
+        self,
+        container_blob: bytes,
+        container_field: int,
+        index: int,
+    ) -> dict[str, Any] | None:
+        """Decode a Lymow map area/zone container.
+
+        Observed structure:
+          container field 1 -> area detail
+          area detail field 1 -> type code
+          area detail field 2 -> display name
+          area detail field 3 -> area id
+          area detail field 4 -> enabled flag
+          area detail field 5 -> point-list blob
+        """
+        try:
+            container_fields = self._parse_protobuf_fields(container_blob)
+        except Exception:
             return None
 
-        return {
-            "name": name or "Unknown",
-            "id": zone_id,
+        detail_blob = self._first_value(container_fields, 1)
+        if not isinstance(detail_blob, bytes):
+            return None
+
+        try:
+            detail_fields = self._parse_protobuf_fields(detail_blob)
+        except Exception:
+            return None
+
+        points = self._decode_point_list(self._first_value(detail_fields, 5))
+
+        record: dict[str, Any] = {
+            "container_field": container_field,
+            "index": index,
+            "type_code": self._first_int(detail_fields, 1),
+            "name": self._first_text(detail_fields, 2),
+            "id": self._first_text(detail_fields, 3),
+            "enabled_flag": self._first_int(detail_fields, 4),
             "point_count": len(points),
+            "bounds": self._bounds_for_points(points),
             "points": points,
         }
 
-    def _find_zone_records_recursive(
-        self,
-        blob: bytes,
-        depth: int = 0,
-        max_depth: int = 6,
-    ) -> list[dict[str, Any]]:
-        """Find zone records inside nested protobuf data."""
-        if depth > max_depth:
-            return []
+        linked_id = self._first_text(container_fields, 2)
+        if linked_id:
+            record["parent_or_linked_id"] = linked_id
 
-        zones: list[dict[str, Any]] = []
+        return record
 
+    def _decode_metadata_record(self, metadata_blob: bytes, index: int) -> dict[str, Any]:
+        """Decode smaller Lymow map metadata records."""
         try:
-            fields = self._parse_protobuf_fields(blob)
+            metadata_fields = self._parse_protobuf_fields(metadata_blob)
         except Exception:
-            return zones
+            return {
+                "index": index,
+                "raw_hex": metadata_blob.hex(),
+            }
 
-        if 1 in fields and 5 in fields:
-            zone = self._decode_zone_record(blob)
-            if zone and zone["point_count"] > 2:
-                zones.append(zone)
-
-        for values in fields.values():
-            for value in values:
-                if isinstance(value, bytes) and len(value) > 0:
-                    zones.extend(
-                        self._find_zone_records_recursive(
-                            value,
-                            depth=depth + 1,
-                            max_depth=max_depth,
-                        )
-                    )
-
-        return zones
-
-    def _dedupe_map_zones(self, zones: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Remove duplicate zone records discovered through recursive parsing."""
-        deduped: list[dict[str, Any]] = []
-        seen: set[tuple[str, str | None, int]] = set()
-
-        for zone in zones:
-            key = (
-                zone.get("name", "Unknown"),
-                zone.get("id"),
-                zone.get("point_count", 0),
-            )
-
-            if key in seen:
-                continue
-
-            seen.add(key)
-            deduped.append(zone)
-
-        return deduped
+        return {
+            "index": index,
+            "field_1": self._first_text(metadata_fields, 1),
+            "field_2": self._first_text(metadata_fields, 2),
+            "field_3": self._first_text(metadata_fields, 3),
+            "field_5_points": self._decode_point_list(
+                self._first_value(metadata_fields, 5)
+            ),
+        }
 
     def _decode_map_info(self, decoded: bytes) -> dict[str, Any] | None:
         """Decode Lymow map/zone data from a large pboutput payload."""
         try:
-            top_fields = self._parse_protobuf_fields(decoded)
+            root_fields = self._parse_protobuf_fields(decoded)
         except Exception:
             return None
 
-        map_blobs = top_fields.get(23)
-        if not map_blobs:
+        field_23 = self._first_value(root_fields, 23)
+        if not isinstance(field_23, bytes):
+            return None
+
+        try:
+            field_23_fields = self._parse_protobuf_fields(field_23)
+        except Exception:
+            return None
+
+        field_2 = self._first_value(field_23_fields, 2)
+        if not isinstance(field_2, bytes):
+            return None
+
+        try:
+            field_2_fields = self._parse_protobuf_fields(field_2)
+        except Exception:
+            return None
+
+        map_content = self._first_value(field_2_fields, 3)
+        if not isinstance(map_content, bytes):
+            return None
+
+        try:
+            map_fields = self._parse_protobuf_fields(map_content)
+        except Exception:
             return None
 
         zones: list[dict[str, Any]] = []
+        linked_records: list[dict[str, Any]] = []
+        metadata_records: list[dict[str, Any]] = []
 
-        for map_blob in map_blobs:
-            if not isinstance(map_blob, bytes):
+        for index, zone_blob in enumerate(map_fields.get(1, [])):
+            if not isinstance(zone_blob, bytes):
                 continue
 
-            zones.extend(self._find_zone_records_recursive(map_blob))
+            zone = self._decode_area_container(zone_blob, 1, index)
+            if zone and zone.get("point_count", 0) > 0:
+                zones.append(zone)
 
-        zones = self._dedupe_map_zones(zones)
+        for index, linked_blob in enumerate(map_fields.get(2, [])):
+            if not isinstance(linked_blob, bytes):
+                continue
+
+            linked_record = self._decode_area_container(linked_blob, 2, index)
+            if linked_record:
+                linked_records.append(linked_record)
+
+        for index, metadata_blob in enumerate(map_fields.get(3, [])):
+            if not isinstance(metadata_blob, bytes):
+                continue
+
+            metadata_records.append(self._decode_metadata_record(metadata_blob, index))
 
         if not zones:
             return None
 
-        total_points = sum(zone.get("point_count", 0) for zone in zones)
+        all_points = [
+            point
+            for zone in zones
+            for point in zone.get("points", [])
+        ]
 
         return {
             "thing_name": self.config.get(CONF_LYMOW_THING_NAME),
             "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "zone_count": len(zones),
-            "point_count": total_points,
+            "linked_record_count": len(linked_records),
+            "metadata_record_count": len(metadata_records),
+            "point_count": len(all_points),
+            "bounds": self._bounds_for_points(all_points),
             "zones": zones,
+            "linked_records": linked_records,
+            "metadata_records": metadata_records,
         }
 
     def _save_map_data(self, map_data: dict[str, Any]) -> str | None:
