@@ -82,17 +82,25 @@ class LymowHub:
         return self._connected
 
     def _connect_sync(self) -> None:
+        """Connect to AWS IoT."""
         self._credentials = self._fetch_aws_credentials()
         self._aws_connection = self._build_aws_connection(self._credentials)
-        self._aws_connection.connect().result()
+
+        _LOGGER.debug("Connecting to Lymow AWS IoT endpoint: %s", self.config[CONF_LYMOW_IOT_ENDPOINT])
+        self._aws_connection.connect().result(timeout=30)
+        _LOGGER.debug("Connected to Lymow AWS IoT endpoint")
+
         self._subscribe_to_topics()
+
         self._connected = True
         _LOGGER.info("Lymow AWS IoT connected")
 
+
     def _disconnect_sync(self) -> None:
+        """Disconnect from AWS IoT."""
         if self._aws_connection is not None:
             try:
-                self._aws_connection.disconnect().result()
+                self._aws_connection.disconnect().result(timeout=10)
             except Exception as err:
                 _LOGGER.warning("Lymow AWS disconnect failed: %s", err)
 
@@ -151,17 +159,28 @@ class LymowHub:
         )
 
     def _subscribe_to_topics(self) -> None:
+        """Subscribe to Lymow AWS IoT topics."""
         thing_name = self.config[CONF_LYMOW_THING_NAME]
-        topics = [f"/device/{thing_name}/pboutput", f"/device/{thing_name}/notify-app"]
+        topics = [
+            f"/device/{thing_name}/pboutput",
+            f"/device/{thing_name}/notify-app",
+        ]
 
         for topic in topics:
-            subscribe_future, _ = self._aws_connection.subscribe(
+            _LOGGER.debug("Subscribing to Lymow AWS topic: %s", topic)
+            subscribe_future, packet_id = self._aws_connection.subscribe(
                 topic=topic,
                 qos=mqtt.QoS.AT_LEAST_ONCE,
                 callback=self._handle_aws_message,
             )
-            subscribe_future.result()
-            _LOGGER.debug("Subscribed to Lymow AWS topic: %s", topic)
+
+            subscribe_result = subscribe_future.result(timeout=30)
+            _LOGGER.debug(
+                "Subscribed to Lymow AWS topic: %s, packet_id=%s, result=%s",
+                topic,
+                packet_id,
+                subscribe_result,
+            )
 
     def _handle_aws_message(self, topic, payload, dup, qos, retain, **kwargs) -> None:
         try:
@@ -185,7 +204,7 @@ class LymowHub:
 
     async def _async_refresh_loop(self) -> None:
         while True:
-            await self.hass.async_add_executor_job(self._stop_event.wait, timeout=10)
+            await self.hass.async_add_executor_job(self._stop_event.wait, 10)
             if self._stop_event.is_set():
                 return
             if self._credentials and self._should_refresh_credentials(self._credentials["expiration"]):
