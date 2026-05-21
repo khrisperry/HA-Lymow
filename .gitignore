@@ -9,6 +9,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+local_lymow_runner.py
 
 # Reverse engineering / generated artifacts
 captures/
@@ -28,3 +29,5 @@ Thumbs.db
 
 # Home Assistant custom component cache
 custom_components/**/__pycache__/
+
+lymow_message_dumps/
