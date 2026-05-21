@@ -287,10 +287,10 @@ class LymowHub:
             "lte_signal",
             "work_status_code",
             "connection_flag",
-            "map_x",
-            "map_y",
-            "heading_radians",
-            "heading_degrees",
+            #"map_x",
+            #"map_y",
+            #"heading_radians",
+            #"heading_degrees",
         ]
 
         for key in keys_to_compare:
