@@ -1,0 +1,10 @@
+{
+  "domain": "lymow",
+  "name": "Lymow",
+  "version": "0.1.0",
+  "documentation": "https://github.com/your/repo",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@yourgithub"],
+  "iot_class": "local_polling"
+}

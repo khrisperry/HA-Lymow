@@ -1,0 +1,13 @@
+{
+  "title": "Lymow",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure Lymow",
+        "data": {
+          "host": "Host"
+        }
+      }
+    }
+  }
+}
