@@ -193,10 +193,32 @@ class LymowHub:
             robot_info = self._decode_robot_info(decoded)
             if not robot_info:
                 return
-            self.state.update(robot_info)
-            self._notify_listeners()
+            if self._has_meaningful_state_change(robot_info):
+                self.state.update(robot_info)
+                self.state["last_update"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                self._notify_listeners()
+            else:
+                _LOGGER.debug("Ignoring Lymow message with no meaningful state change")
         except Exception as err:
             _LOGGER.warning("Failed to process AWS message: %s", err)
+
+    def _has_meaningful_state_change(self, new_state: dict[str, Any]) -> bool:
+        """Return true if the new Lymow state has changed in a meaningful way."""
+        keys_to_compare = [
+            "robot_status_code",
+            "robot_status",
+            "battery",
+            "wifi_signal",
+            "lte_signal",
+            "work_status_code",
+            "connection_flag",
+        ]
+
+        for key in keys_to_compare:
+            if self.state.get(key) != new_state.get(key):
+                return True
+
+        return False
 
     def _notify_listeners(self) -> None:
         for listener in list(self._listeners):
@@ -301,5 +323,4 @@ class LymowHub:
             "lte_signal": self._unsigned_to_signed_64(lte_raw) if lte_raw is not None else None,
             "work_status_code": work_status_code,
             "connection_flag": first_int(10),
-            "last_update": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
