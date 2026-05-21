@@ -40,6 +40,7 @@ ROBOT_STATUS_MAP = {
     3: "Paused",
     4: "Docking",
     5: "Charging",
+    7: "Mower Stuck",
 }
 
 
