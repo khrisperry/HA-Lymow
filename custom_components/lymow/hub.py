@@ -36,6 +36,7 @@ _LOGGER = logging.getLogger(__name__)
 REFRESH_BUFFER_MINUTES = 5
 
 ROBOT_STATUS_MAP = {
+    1: "Waiting",
     2: "Mowing",
     3: "Paused",
     4: "Docking",
